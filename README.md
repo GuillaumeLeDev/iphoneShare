@@ -1,139 +1,152 @@
 # iPhone Photo Server
 
-Envoie des photos depuis ton iPhone vers ton PC Ubuntu en quelques taps, via un Raccourci iOS et un serveur Flask dockerisé.
+A lightweight Flask server running in Docker that receives photos sent from an iPhone via an iOS Shortcut and saves them directly to a local directory.
 
 ```
-iPhone (Raccourci iOS)
-    ↓  HTTP POST multipart
-Serveur Python Flask (Docker, port 5005)
+iPhone (iOS Shortcut)
+    ↓  HTTP POST multipart/form-data
+Python Flask server (Docker, port 5005)
     ↓
 ~/Downloads/
 ```
 
 ---
 
-## Prérequis
+## Requirements
 
-- Docker + Docker Compose installés sur le PC
-- L'iPhone et le PC sont sur le **même réseau local**
-- L'application **Raccourcis** sur iPhone (iOS 13+)
+- Docker and Docker Compose installed on the host machine
+- The iPhone and the host machine must be on the **same local network**
+- The **Shortcuts** app on iPhone (iOS 13 or later)
 
 ---
 
 ## Installation
 
-### 1. Cloner le dépôt
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<ton-pseudo>/<ton-repo>.git
-cd <ton-repo>
+git clone https://github.com/GuillaumeLeDev/iphoneShare.git
+cd iphoneShare
 ```
 
-### 2. Créer le fichier `.env`
+### 2. Configure the secret token
 
-Le fichier `.env` contient le token secret qui protège le serveur. Il ne doit **jamais être commité**.
+The `.env` file holds the token used to authenticate incoming requests. It is listed in `.gitignore` and must never be committed.
 
 ```bash
 cp .env.example .env
 ```
 
-Édite `.env` et remplace la valeur par un token fort :
+Generate a secure random token and paste it into `.env`:
 
 ```bash
-# Générer un token aléatoire (recommandé)
 openssl rand -hex 32
 ```
 
-```
-SECRET_TOKEN=colle_ton_token_ici
+```env
+SECRET_TOKEN=your_generated_token_here
 ```
 
-### 3. Lancer le serveur
+### 3. Start the server
 
 ```bash
 docker compose up -d --build
 ```
 
-Le conteneur démarre automatiquement au boot du PC (`restart: always`).
+The container is configured with `restart: always` and will start automatically on system boot.
 
-### 4. Vérifier que le serveur tourne
+### 4. Verify the server is running
 
 ```bash
 curl http://localhost:5005/health
-# {"status": "ok"}
+# Expected response: {"status": "ok"}
 ```
 
 ---
 
-## Commandes utiles
+## Usage
 
-```bash
-docker compose logs -f           # logs en temps réel
-docker compose down              # arrêter le serveur
-docker compose up -d --build     # rebuilder après modification
+### Supported file formats
+
+JPEG, PNG, HEIC, HEIF, GIF, WebP — maximum file size: **50 MB**
+
+### Saved filenames
+
+Files are named after the date and time of reception to avoid conflicts:
+
+```
+2026-04-17_14-32-01.jpg
 ```
 
----
+They are saved to `~/Downloads/` on the host machine.
 
-## Configuration réseau
-
-### IP fixe sur le PC
-
-Pour que l'iPhone trouve toujours le PC à la même adresse, configure un **bail DHCP statique** dans ton routeur.
-
-Sur Freebox : `mafreebox.freebox.fr` → Paramètres → DHCP → Baux statiques → ajouter le PC.
-
-### Réseaux supportés par le Raccourci
-
-Le Raccourci iOS détecte automatiquement le Wi-Fi et choisit la bonne IP :
-
-| Réseau (SSID) | IP du PC |
-|---|---|
-| Réseau maison | IP fixe attribuée par le routeur |
-| Réseau campus / autre | IP du PC sur ce réseau |
-
----
-
-## Raccourci iOS
-
-> Les captures d'écran du Raccourci sont disponibles ci-dessous.
-
-### Logique générale
-
-1. Reçoit la photo depuis le menu de partage iOS
-2. Détecte le SSID Wi-Fi actuel
-3. Choisit l'IP correspondante (ou affiche une erreur si le réseau est inconnu)
-4. Envoie la photo en `POST /upload` avec le token dans le header `Authorization`
-5. Affiche la confirmation
-
-### Paramètres de la requête HTTP
-
-| Paramètre | Valeur |
-|---|---|
-| URL | `http://<IP_DU_PC>:5005/upload` |
-| Méthode | `POST` |
-| Header | `Authorization: Bearer <SECRET_TOKEN>` |
-| Corps | Multipart form-data, champ `file` = la photo |
-
-> Le token à renseigner dans le Raccourci est celui que tu as mis dans ton fichier `.env`.  
-> Ne le partage pas et ne le publie pas.
-
----
-
-## Sécurité
-
-- Le token secret transite dans le header HTTP — utilise ce serveur **uniquement en réseau local de confiance**.
-- Le fichier `.env` est listé dans `.gitignore` et ne sera jamais commité.
-- Si tu penses que ton token a été exposé, génère-en un nouveau avec `openssl rand -hex 32`, mets à jour `.env`, relance avec `docker compose up -d --build`, et mets à jour le Raccourci iOS.
-
----
-
-## Format de la réponse
+### API response
 
 ```json
 { "status": "ok", "filename": "2026-04-17_14-32-01.jpg" }
 ```
 
-Les fichiers sont nommés avec la date et l'heure pour éviter les doublons et sauvegardés dans `~/Downloads/`.
+---
 
-Formats acceptés : JPEG, PNG, HEIC, HEIF, GIF, WebP. Taille max : 50 MB.
+## Useful commands
+
+```bash
+docker compose logs -f            # Stream live logs
+docker compose down               # Stop the server
+docker compose up -d --build      # Rebuild and restart after changes
+```
+
+---
+
+## Network configuration
+
+### Static IP on the host machine
+
+To ensure the iPhone always reaches the server at the same address, configure a **static DHCP lease** on the router for the host machine. Once set, the IP will never change.
+
+### Allowed networks
+
+For security, the server only accepts requests from the following subnets. Requests from any other IP are rejected with a `403` before the token is even checked:
+
+| Network | Range |
+|---|---|
+| Home network (example) | `192.168.1.0/24` |
+| Campus / other network | `10.109.0.0/16` |
+
+Adjust these ranges in `server.py` to match your own network configuration.
+
+---
+
+## iOS Shortcut setup
+
+> Screenshots of the Shortcut configuration are available below.
+
+### Overview
+
+The Shortcut is triggered from the iOS share sheet and performs the following steps:
+
+1. Receives the photo from the share sheet
+2. Reads the current Wi-Fi SSID
+3. Selects the corresponding server IP address (or shows an error if the network is not recognized)
+4. Sends the photo via `POST /upload` with the secret token in the `Authorization` header
+5. Displays the server confirmation
+
+### HTTP request parameters
+
+| Parameter | Value |
+|---|---|
+| URL | `http://<HOST_IP>:5005/upload` |
+| Method | `POST` |
+| Header | `Authorization: Bearer <SECRET_TOKEN>` |
+| Body | Multipart form-data, field `file` = the photo |
+
+The token used in the Shortcut must match the value defined in the `.env` file on the server.
+
+---
+
+## Security
+
+- The server rejects any request originating from an IP outside the configured subnets, before any token validation.
+- The secret token is transmitted in the HTTP `Authorization` header. This server is intended for use on **trusted local networks only**.
+- The `.env` file is excluded from version control via `.gitignore` and will never be committed to the repository.
+- If the token is ever compromised, generate a new one with `openssl rand -hex 32`, update `.env`, restart the container with `docker compose up -d --build`, and update the token in the iOS Shortcut.

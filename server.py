@@ -1,5 +1,6 @@
 import os
 import logging
+import ipaddress
 from datetime import datetime
 from flask import Flask, request, jsonify
 
@@ -14,9 +15,27 @@ log = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp"}
 
+ALLOWED_NETWORKS = [
+    ipaddress.ip_network("192.168.1.0/24"),  # Freebox maison
+    ipaddress.ip_network("10.109.0.0/16"),   # Campus IONIS
+]
+
+
+def is_allowed_ip(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in net for net in ALLOWED_NETWORKS)
+    except ValueError:
+        return False
+
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    client_ip = request.remote_addr
+    if not is_allowed_ip(client_ip):
+        log.warning("403 - IP non autorisee: %s", client_ip)
+        return jsonify({"status": "error", "message": "Forbidden"}), 403
+
     auth = request.headers.get("Authorization", "")
     if not auth == f"Bearer {SECRET_TOKEN}":
         log.warning("Unauthorized upload attempt from %s", request.remote_addr)
