@@ -1,10 +1,12 @@
 services:
   photo-server:
     build: .
-    ports:
-      - "5005:5005"
+    network_mode: host
     volumes:
       - /home/guillaume/Downloads:/downloads
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
     env_file:
       - .env
     restart: always
