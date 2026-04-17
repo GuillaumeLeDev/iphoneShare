@@ -1,0 +1,10 @@
+services:
+  photo-server:
+    build: .
+    ports:
+      - "5005:5005"
+    volumes:
+      - /home/guillaume/Downloads:/downloads
+    env_file:
+      - .env
+    restart: always
