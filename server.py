@@ -42,40 +42,57 @@ def is_allowed_ip(ip: str) -> bool:
         return False
 
 
+CONTENT_TYPE_TO_EXT = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/heic": ".heic",
+    "image/heif": ".heif",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     err, code = check_auth(request.remote_addr)
     if err:
         return err, code
 
-    if not request.files:
-        log.warning("400 - no files in request. form keys: %s, content-type: %s",
-                    list(request.form.keys()), request.content_type)
+    # Support both raw body (iOS Shortcuts "Fichier") and multipart form
+    if request.files:
+        file = request.files.get("file") or next(iter(request.files.values()))
+        data = file.read()
+        ct = file.content_type or request.content_type or ""
+        ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
+    else:
+        data = request.data
+        ct = request.content_type or ""
+        ext = ""
+
+    if not data:
+        log.warning("400 - empty body. content-type: %s", request.content_type)
         return jsonify({"status": "error", "message": "No file provided"}), 400
 
-    # Accept any field name (iOS Shortcuts may not use "file")
-    file = request.files.get("file") or next(iter(request.files.values()))
-
-    if file.filename == "":
-        log.warning("400 - empty filename. files keys: %s", list(request.files.keys()))
-        return jsonify({"status": "error", "message": "Empty filename"}), 400
-
-    original_ext = os.path.splitext(file.filename)[1].lower()
-    if original_ext not in ALLOWED_EXTENSIONS:
-        original_ext = ".jpg"
-
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"{timestamp}{original_ext}"
-    save_path = os.path.join(UPLOAD_DIR, filename)
-
-    file.seek(0, 2)
-    size = file.tell()
-    file.seek(0)
-    if size > MAX_FILE_SIZE:
+    if len(data) > MAX_FILE_SIZE:
         return jsonify({"status": "error", "message": "File too large (max 50 MB)"}), 413
 
-    file.save(save_path)
-    log.info("Photo saved: %s (%d bytes) from %s", filename, size, request.remote_addr)
+    if not ext:
+        mime = ct.split(";")[0].strip().lower()
+        ext = CONTENT_TYPE_TO_EXT.get(mime, ".jpg")
+
+    if ext not in ALLOWED_EXTENSIONS:
+        ext = ".jpg"
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"{timestamp}{ext}"
+    save_path = os.path.join(UPLOAD_DIR, filename)
+
+    with open(save_path, "wb") as f:
+        f.write(data)
+
+    stat = os.stat(UPLOAD_DIR)
+    os.chown(save_path, stat.st_uid, stat.st_gid)
+    log.info("Photo saved: %s (%d bytes) from %s", filename, len(data), request.remote_addr)
 
     return jsonify({"status": "ok", "filename": filename})
 

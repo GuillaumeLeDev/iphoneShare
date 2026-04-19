@@ -1,23 +1,35 @@
-# iPhone Photo Server
+# iPhone → PC : envoi de photos et presse-papier
 
-Serveur Flask dockerisé permettant de recevoir des photos depuis un iPhone via un Raccourci iOS et de les enregistrer automatiquement dans un dossier local.
+Serveur Flask dockerisé permettant d'envoyer des photos et du texte depuis un iPhone vers un PC Ubuntu, en deux taps depuis le menu de partage natif iOS.
 
 ```
-iPhone (Raccourci iOS)
-    ↓  HTTPS POST multipart/form-data
+iPhone (Raccourci iOS — menu partage)
+    ↓  HTTPS POST
 Serveur Python Flask (Docker, port 5005)
     ↓
-~/Downloads/
+~/Downloads/          ← photos
+presse-papier GNOME   ← texte
 ```
+
+---
+
+## Fonctionnalités
+
+| Endpoint | Description |
+|---|---|
+| `POST /upload` | Reçoit une photo et la sauvegarde dans `~/Downloads/` |
+| `POST /clipboard` | Reçoit du texte et le place dans le presse-papier GNOME |
+| `GET /health` | Vérification que le serveur tourne |
 
 ---
 
 ## Prérequis
 
-- Docker et Docker Compose installés sur la machine hôte
-- L'iPhone et la machine hôte doivent être sur le **même réseau local**
-- L'application **Raccourcis** sur iPhone (iOS 14 ou supérieur)
-- `avahi-daemon` installé sur la machine hôte (pour la résolution mDNS)
+- Docker et Docker Compose
+- `avahi-daemon` installé (résolution mDNS, requis par iOS)
+- `xclip` installé sur la machine hôte (pour le presse-papier)
+- iPhone et PC sur le **même réseau local**
+- App **Raccourcis** sur iPhone (iOS 14+)
 
 ---
 
@@ -32,13 +44,11 @@ cd iphoneShare
 
 ### 2. Configurer le token secret
 
-Le fichier `.env` contient le token d'authentification des requêtes entrantes. Il est listé dans `.gitignore` et ne doit jamais être commité.
-
 ```bash
 cp .env.example .env
 ```
 
-Générer un token aléatoire sécurisé et le coller dans `.env` :
+Générer un token et le coller dans `.env` :
 
 ```bash
 openssl rand -hex 32
@@ -50,9 +60,7 @@ SECRET_TOKEN=coller_le_token_ici
 
 ### 3. Générer le certificat HTTPS
 
-Le serveur fonctionne en HTTPS. Un certificat auto-signé est nécessaire pour que l'iPhone puisse établir une connexion chiffrée sur le réseau local.
-
-Remplacer `<IP_DU_PC>` par l'adresse IP de la machine sur le réseau local, et `<HOSTNAME>` par le nom de la machine (résultat de la commande `hostname`) :
+iOS exige HTTPS pour les connexions réseau local. Remplacer `<HOSTNAME>` par le résultat de `hostname` et `<IP_DU_PC>` par l'IP locale de la machine :
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 825 -nodes \
@@ -60,24 +68,24 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 825 -node
   -addext "subjectAltName=DNS:<HOSTNAME>.local,IP:<IP_DU_PC>"
 ```
 
-> `cert.pem` et `key.pem` sont listés dans `.gitignore` et ne seront jamais commités.
+> `cert.pem` et `key.pem` sont dans `.gitignore` et ne seront jamais commités.
 
 ### 4. Configurer avahi-daemon
 
-`avahi-daemon` permet à la machine d'être joignable via son nom `.local` sur le réseau local (protocole mDNS). C'est indispensable pour que le Raccourci iOS puisse déclencher la permission d'accès au réseau local.
-
-Restreindre avahi à l'interface Wi-Fi (remplacer `wlo1` par le nom de l'interface réseau si nécessaire) :
+`avahi-daemon` expose la machine sous le nom `<hostname>.local` sur le réseau local (mDNS). C'est indispensable : iOS n'accorde la permission réseau local qu'aux connexions via un nom `.local`, pas aux IPs directes.
 
 ```bash
 sudo sed -i 's/#allow-interfaces=eth0/allow-interfaces=wlo1/' /etc/avahi/avahi-daemon.conf
 sudo systemctl restart avahi-daemon
 ```
 
+Remplacer `wlo1` par le nom de l'interface Wi-Fi si nécessaire (`ip link` pour le vérifier).
+
 Vérifier que la résolution fonctionne :
 
 ```bash
 avahi-resolve-host-name -4 $(hostname).local
-# Doit retourner l'IP Wi-Fi de la machine, pas une IP Docker
+# Doit retourner l'IP Wi-Fi, pas une IP Docker
 ```
 
 ### 5. Lancer le serveur
@@ -86,109 +94,127 @@ avahi-resolve-host-name -4 $(hostname).local
 docker compose up -d --build
 ```
 
-Le conteneur est configuré avec `restart: always` et démarrera automatiquement au boot de la machine.
+Le conteneur démarre automatiquement au boot (`restart: always`).
 
-### 6. Vérifier que le serveur fonctionne
+### 6. Vérifier
 
 ```bash
 curl -sk https://$(hostname).local:5005/health
-# Réponse attendue : {"status": "ok"}
+# {"status": "ok"}
 ```
 
 ---
 
 ## Installer le certificat sur l'iPhone
 
-Cette étape est requise pour que l'iPhone fasse confiance au certificat auto-signé.
+**Étape 1** — Envoyer `cert.pem` par AirDrop depuis le PC vers l'iPhone.
 
-**Étape 1 — Envoyer le certificat sur l'iPhone**
+**Étape 2** — Réglages → **Profil téléchargé** (en haut) → Installer → code → Installer
 
-Envoyer le fichier `cert.pem` par AirDrop depuis le PC vers l'iPhone.
-
-**Étape 2 — Installer le profil**
-
-Réglages → **Profil téléchargé** (visible en haut de l'écran) → Installer → saisir le code → Installer
-
-**Étape 3 — Activer la confiance complète**
-
-Réglages → Général → À propos → **Réglages des certificats de confiance** → activer le certificat installé
+**Étape 3** — Réglages → Général → À propos → **Réglages des certificats de confiance** → activer le certificat
 
 ---
 
-## Configurer le Raccourci iOS
+## Raccourci iOS — Envoi de photos
 
-### Vue d'ensemble
+Le raccourci se déclenche depuis le **menu de partage natif** d'iOS (bouton partager dans Photos ou tout autre app).
 
-Le Raccourci est déclenché depuis le menu de partage natif d'iOS et effectue les actions suivantes :
-
-1. Sélectionne la photo à envoyer
-2. Lit le SSID du réseau Wi-Fi actuel
-3. Définit l'adresse IP du serveur en fonction du réseau (ou affiche une erreur si le réseau n'est pas reconnu)
-4. Envoie la photo via `POST /upload` avec le token dans le header `Authorization`
-5. Affiche la confirmation
-
-### Paramètres de la requête HTTP
-
-| Paramètre | Valeur |
+| | |
 |---|---|
-| URL | `https://<HOSTNAME>.local:5005/upload` |
-| Méthode | `POST` |
-| Header | `Authorization: Bearer <SECRET_TOKEN>` |
-| Corps | Formulaire multipart, champ `file` = la photo |
+| ![Menu partage](screenshots/menupartagerenvoyer.png) | ![Construction du raccourci](screenshots/Raccourci2.png) |
+| Appuyer sur **"envoyer au pc"** dans le menu partage | Détection automatique du réseau Wi-Fi |
 
-> Le token doit correspondre à la valeur définie dans le fichier `.env` sur le serveur.
+![Raccourci — partie envoi](screenshots/raccourci1.png)
+
+### Actions du raccourci
+
+1. **Recevoir** depuis la feuille partagée (Apps et 18 de plus)
+2. **Obtenir le nom du réseau** Wi-Fi actuel
+3. **Si** SSID = `Freebox-4C2A80` → IP = `192.168.1.19` *(adapter à l'IP maison)*
+4. **Sinon** → IP = `10.109.252.31` *(campus IONIS)*
+5. **Obtenir le contenu de l'URL**
+   - URL : `https://<HOSTNAME>.local:5005/upload`
+   - Méthode : `POST`
+   - En-tête : `Authorization: Bearer <SECRET_TOKEN>`
+   - Corps : **Formulaire** — champ `file` = Entrée de raccourci
+6. **Afficher la notification** "Photo envoyé"
+
+![Notification](screenshots/notification.png)
 
 ### Première exécution
 
-Lors du premier lancement du Raccourci, iOS affichera la popup **"Raccourcis souhaite accéder aux appareils de votre réseau local"**. Il est impératif d'accepter pour que les requêtes puissent atteindre le serveur.
+iOS affiche la popup **"Raccourcis souhaite accéder aux appareils de votre réseau local"** — accepter obligatoirement.
 
-> **Pourquoi `.local` et pas une IP directe ?**
-> iOS exige une permission explicite pour qu'une application accède au réseau local (`192.168.x.x`). Cette permission n'est déclenchée que lorsque l'application utilise le protocole mDNS (résolution d'un nom `.local`). Avec une adresse IP brute, iOS bloque silencieusement la connexion sans jamais afficher le dialogue de permission.
+> **Pourquoi `.local` et pas une IP ?**
+> iOS bloque silencieusement les connexions vers une IP locale sans jamais afficher le dialogue de permission. Le protocole mDNS (nom `.local`) est le seul moyen de déclencher ce dialogue.
+
+---
+
+## Presse-papier GNOME (xhost)
+
+Pour que le conteneur Docker puisse écrire dans le presse-papier de la session graphique, exécuter une fois par session :
+
+```bash
+xhost +local:docker
+```
+
+Pour l'automatiser au démarrage de session, ajouter cette commande dans **Paramètres → Applications au démarrage** (ou équivalent GNOME).
 
 ---
 
 ## Réseaux autorisés
 
-Pour des raisons de sécurité, le serveur rejette toute requête provenant d'une IP hors des sous-réseaux configurés, avant même la vérification du token :
+Le serveur rejette toute requête hors des sous-réseaux configurés avant même la vérification du token :
 
 | Réseau | Plage |
 |---|---|
-| Réseau local domestique | `192.168.1.0/24` |
-| Réseau campus / entreprise | `10.109.0.0/16` |
+| Réseau domestique (Freebox) | `192.168.1.0/24` |
+| Campus IONIS | `10.109.0.0/16` |
 
-Adapter ces plages dans `server.py` selon la configuration réseau locale.
-
-> **Note :** Sur un réseau d'entreprise ou de campus (`10.x.x.x` large), iOS ne considère pas l'adresse comme locale et n'applique pas la restriction mDNS. Une URL avec une IP directe et HTTP simple peut suffire dans ce contexte.
+Adapter ces plages dans `server.py` si nécessaire.
 
 ---
 
 ## Commandes utiles
 
 ```bash
-docker compose logs -f            # Afficher les logs en temps réel
-docker compose down               # Arrêter le serveur
-docker compose up -d --build      # Rebuilder et redémarrer après modification
+docker compose logs -f            # Logs en temps réel
+docker compose down               # Arrêter
+docker compose up -d --build      # Rebuild après modification
 ```
 
 ---
 
-## Formats de fichiers supportés
+## Formats supportés
 
-JPEG, PNG, HEIC, HEIF, GIF, WebP — taille maximale : **50 Mo**
+JPEG, PNG, HEIC, HEIF, GIF, WebP — taille maximale **50 Mo**
 
-Les fichiers sont nommés d'après la date et l'heure de réception afin d'éviter les doublons :
-
+Les fichiers sont nommés par date/heure de réception :
 ```
-2026-04-17_14-32-01.jpg
+2026-04-19_14-32-01.jpg
 ```
-
-Ils sont enregistrés dans `~/Downloads/` sur la machine hôte.
 
 ---
 
-## Sécurité
+## Sécurité et confidentialité
 
-- Le serveur rejette toute requête dont l'IP source n'appartient pas aux sous-réseaux autorisés, avant la vérification du token.
-- Le token secret transite dans le header HTTP `Authorization`. Ce serveur est conçu pour un usage sur **réseau local de confiance uniquement**.
-- Le fichier `.env` est exclu du contrôle de version via `.gitignore`.
-- En cas de compromission du token, générer un nouveau token avec `openssl rand -hex 32`, mettre à jour `.env`, relancer le conteneur avec `docker compose up -d --build`, et mettre à jour le Raccourci iOS.
+### Vos données ne quittent jamais votre réseau
+
+Toutes les photos et tous les textes transitent **exclusivement sur votre réseau local** (Wi-Fi domestique ou réseau campus), de l'iPhone directement au PC. Aucune donnée ne passe par un serveur tiers, un cloud ou internet. Un attaquant extérieur à votre réseau ne peut pas intercepter ni accéder aux fichiers envoyés.
+
+### Chiffrement HTTPS de bout en bout
+
+Chaque transfert est chiffré via **HTTPS/TLS** entre l'iPhone et le serveur. Même sur un réseau partagé (campus, Wi-Fi public), le contenu des photos et du texte est illisible par quiconque écouterait le trafic.
+
+### Authentification par token secret
+
+Chaque requête doit présenter un **token secret dans le header `Authorization`**. Sans ce token, le serveur rejette la connexion avec une erreur 401. Cela empêche tout autre appareil sur le réseau local d'envoyer des fichiers au serveur à votre insu.
+
+### Filtrage par sous-réseau
+
+Le serveur vérifie l'adresse IP source de chaque requête **avant même la vérification du token**. Toute requête provenant d'un sous-réseau non autorisé est rejetée immédiatement (erreur 403).
+
+### Bonnes pratiques
+
+- `.env` (token secret) est exclu du contrôle de version via `.gitignore` et ne sera jamais publié.
+- En cas de compromission du token : générer un nouveau token avec `openssl rand -hex 32`, mettre à jour `.env`, relancer avec `docker compose up -d --build`, mettre à jour le Raccourci iOS.
