@@ -1,35 +1,76 @@
-# iPhone → PC : envoi de photos et presse-papier
+# iPhoneShare
 
-Serveur Flask dockerisé permettant d'envoyer des photos et du texte depuis un iPhone vers un PC Ubuntu, en deux taps depuis le menu de partage natif iOS.
+> Partage de photos et de presse-papier depuis iPhone vers PC Ubuntu, en 2 taps — via iOS Raccourcis et un serveur Flask dockerisé.
 
-```
-iPhone (Raccourci iOS — menu partage)
-    ↓  HTTPS POST
-Serveur Python Flask (Docker, port 5005)
-    ↓
-~/Downloads/          ← photos
-presse-papier GNOME   ← texte
-```
+---
+
+## Sommaire
+
+- [Aperçu](#aperçu)
+- [Fonctionnalités](#fonctionnalités)
+- [Architecture](#architecture)
+- [Prérequis](#prérequis)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Démarrage](#démarrage)
+- [API](#api)
+- [iOS — Raccourcis](#ios--raccourcis)
+- [Sécurité](#sécurité)
+- [Commandes utiles](#commandes-utiles)
+- [Structure du projet](#structure-du-projet)
+
+---
+
+## Aperçu
+
+**iPhoneShare** est un serveur local qui reçoit des photos et du texte depuis un iPhone et les dépose directement dans `~/Downloads/` ou le presse-papier GNOME du PC — sans cloud, sans câble, sans application tierce.
+
+Le flux est entièrement piloté par un **Raccourci iOS natif** déclenché depuis le menu Partager. Tout le trafic reste sur le réseau local.
 
 ---
 
 ## Fonctionnalités
 
-| Endpoint | Description |
+| Fonctionnalité | Détail |
 |---|---|
-| `POST /upload` | Reçoit une photo et la sauvegarde dans `~/Downloads/` |
-| `POST /clipboard` | Reçoit du texte et le place dans le presse-papier GNOME |
-| `GET /health` | Vérification que le serveur tourne |
+| Envoi de photos | Dépose le fichier horodaté dans `~/Downloads/` |
+| Copie presse-papier | Envoie du texte directement dans le presse-papier GNOME |
+| Health check | Endpoint `/health` sans authentification |
+| Multi-réseau | Routage automatique selon le SSID (domicile / campus) |
+| HTTPS local | Certificat auto-signé requis par iOS |
+| Sécurité | Token Bearer + filtrage par sous-réseau |
+
+---
+
+## Architecture
+
+```
+iPhone (iOS Shortcuts)
+        │  HTTPS POST  (Bearer token)
+        ▼
+  Flask server :5005  ──► /upload    → ~/Downloads/<timestamp>.<ext>
+  (Docker, host network)  /clipboard → GNOME clipboard (xclip)
+                          /health    → {"status": "ok"}
+```
+
+- **Réseau** : `host` mode Docker pour que mDNS `.local` fonctionne
+- **Résolution** : `avahi-daemon` expose `<hostname>.local` sur le Wi-Fi
+- **Chiffrement** : TLS avec certificat auto-signé installé sur l'iPhone
 
 ---
 
 ## Prérequis
 
-- Docker et Docker Compose
-- `avahi-daemon` installé (résolution mDNS, requis par iOS)
-- `xclip` installé sur la machine hôte (pour le presse-papier)
-- iPhone et PC sur le **même réseau local**
-- App **Raccourcis** sur iPhone (iOS 14+)
+**Sur le PC :**
+- Docker & Docker Compose
+- `avahi-daemon` (résolution mDNS)
+- `xclip` (presse-papier GNOME)
+- iPhone et PC sur le même réseau Wi-Fi
+
+**Sur l'iPhone :**
+- iOS 14+
+- Application Raccourcis
+- Certificat `cert.pem` installé et approuvé
 
 ---
 
@@ -42,179 +83,261 @@ git clone https://github.com/GuillaumeLeDev/iphoneShare.git
 cd iphoneShare
 ```
 
-### 2. Configurer le token secret
-
-```bash
-cp .env.example .env
-```
-
-Générer un token et le coller dans `.env` :
+### 2. Générer un token secret
 
 ```bash
 openssl rand -hex 32
 ```
 
-```env
-SECRET_TOKEN=coller_le_token_ici
-```
+Copier la valeur générée.
 
-### 3. Générer le certificat HTTPS
-
-iOS exige HTTPS pour les connexions réseau local. Remplacer `<HOSTNAME>` par le résultat de `hostname` et `<IP_DU_PC>` par l'IP locale de la machine :
+### 3. Créer le fichier `.env`
 
 ```bash
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 825 -nodes \
-  -subj "/CN=<HOSTNAME>.local" \
-  -addext "subjectAltName=DNS:<HOSTNAME>.local,IP:<IP_DU_PC>"
+cp .env.example .env
+# Coller le token dans .env
 ```
 
-> `cert.pem` et `key.pem` sont dans `.gitignore` et ne seront jamais commités.
+```env
+SECRET_TOKEN=<votre_token_32_hex>
+```
 
-### 4. Configurer avahi-daemon
+### 4. Générer le certificat HTTPS
 
-`avahi-daemon` expose la machine sous le nom `<hostname>.local` sur le réseau local (mDNS). C'est indispensable : iOS n'accorde la permission réseau local qu'aux connexions via un nom `.local`, pas aux IPs directes.
+iOS exige HTTPS même sur réseau local. Le certificat doit inclure le nom d'hôte `.local` et l'IP Wi-Fi.
+
+```bash
+HOSTNAME=$(hostname)
+IP=$(ip addr show wlo1 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+  -days 825 -nodes \
+  -subj "/CN=${HOSTNAME}.local" \
+  -addext "subjectAltName=DNS:${HOSTNAME}.local,IP:${IP}"
+```
+
+> `cert.pem` sera envoyé à l'iPhone via AirDrop. `key.pem` reste sur le PC (gitignored).
+
+### 5. Configurer avahi-daemon
 
 ```bash
 sudo sed -i 's/#allow-interfaces=eth0/allow-interfaces=wlo1/' /etc/avahi/avahi-daemon.conf
 sudo systemctl restart avahi-daemon
 ```
 
-Remplacer `wlo1` par le nom de l'interface Wi-Fi si nécessaire (`ip link` pour le vérifier).
-
-Vérifier que la résolution fonctionne :
+Vérifier la résolution :
 
 ```bash
 avahi-resolve-host-name -4 $(hostname).local
-# Doit retourner l'IP Wi-Fi, pas une IP Docker
 ```
 
-### 5. Lancer le serveur
+### 6. Autoriser Docker à accéder à l'affichage X11
 
-```bash
-docker compose up -d --build
-```
-
-Le conteneur démarre automatiquement au boot (`restart: always`).
-
-### 6. Vérifier
-
-```bash
-curl -sk https://$(hostname).local:5005/health
-# {"status": "ok"}
-```
-
----
-
-## Installer le certificat sur l'iPhone
-
-**Étape 1** — Envoyer `cert.pem` par AirDrop depuis le PC vers l'iPhone.
-
-**Étape 2** — Réglages → **Profil téléchargé** (en haut) → Installer → code → Installer
-
-**Étape 3** — Réglages → Général → À propos → **Réglages des certificats de confiance** → activer le certificat
-
----
-
-## Raccourci iOS — Envoi de photos
-
-Le raccourci se déclenche depuis le **menu de partage natif** d'iOS (bouton partager dans Photos ou tout autre app).
-
-| | |
-|---|---|
-| ![Menu partage](screenshots/menupartagerenvoyer.png) | ![Construction du raccourci](screenshots/Raccourci2.png) |
-| Appuyer sur **"envoyer au pc"** dans le menu partage | Détection automatique du réseau Wi-Fi |
-
-![Raccourci — partie envoi](screenshots/raccourci1.png)
-
-### Actions du raccourci
-
-1. **Recevoir** depuis la feuille partagée (Apps et 18 de plus)
-2. **Obtenir le nom du réseau** Wi-Fi actuel
-3. **Si** SSID = `Freebox-4C2A80` → IP = `192.168.1.19` *(adapter à l'IP maison)*
-4. **Sinon** → IP = `10.109.252.31` *(campus IONIS)*
-5. **Obtenir le contenu de l'URL**
-   - URL : `https://<HOSTNAME>.local:5005/upload`
-   - Méthode : `POST`
-   - En-tête : `Authorization: Bearer <SECRET_TOKEN>`
-   - Corps : **Formulaire** — champ `file` = Entrée de raccourci
-6. **Afficher la notification** "Photo envoyé"
-
-![Notification](screenshots/notification.png)
-
-### Première exécution
-
-iOS affiche la popup **"Raccourcis souhaite accéder aux appareils de votre réseau local"** — accepter obligatoirement.
-
-> **Pourquoi `.local` et pas une IP ?**
-> iOS bloque silencieusement les connexions vers une IP locale sans jamais afficher le dialogue de permission. Le protocole mDNS (nom `.local`) est le seul moyen de déclencher ce dialogue.
-
----
-
-## Presse-papier GNOME (xhost)
-
-Pour que le conteneur Docker puisse écrire dans le presse-papier de la session graphique, exécuter une fois par session :
+À exécuter à chaque session (ou ajouter au démarrage) :
 
 ```bash
 xhost +local:docker
 ```
 
-Pour l'automatiser au démarrage de session, ajouter cette commande dans **Paramètres → Applications au démarrage** (ou équivalent GNOME).
+### 7. Installer le certificat sur l'iPhone
+
+1. Envoyer `cert.pem` par AirDrop
+2. **Réglages → Général → Profils** → Installer le profil
+3. **Réglages → Général → À propos → Réglages de confiance des certificats** → Activer la confiance totale
 
 ---
 
-## Réseaux autorisés
+## Configuration
 
-Le serveur rejette toute requête hors des sous-réseaux configurés avant même la vérification du token :
+### Variables d'environnement (`.env`)
 
-| Réseau | Plage |
+| Variable | Description |
 |---|---|
-| Réseau domestique (Freebox) | `192.168.1.0/24` |
-| Campus IONIS | `10.109.0.0/16` |
+| `SECRET_TOKEN` | Token Bearer requis pour toutes les requêtes authentifiées |
 
-Adapter ces plages dans `server.py` si nécessaire.
+### Réseaux autorisés (`server.py`)
+
+Les sous-réseaux suivants sont acceptés par défaut :
+
+```python
+ALLOWED_NETWORKS = [
+    "192.168.1.0/24",   # Freebox domicile
+    "10.109.0.0/16",    # Campus IONIS
+]
+```
+
+Pour ajouter un réseau, modifier cette liste dans `server.py`.
+
+### Paramètres serveur
+
+| Paramètre | Valeur |
+|---|---|
+| Port | `5005` (HTTPS) |
+| Taille max fichier | 50 Mo |
+| Répertoire de dépôt | `~/Downloads/` |
+| Formats acceptés | JPEG, PNG, HEIC, HEIF, GIF, WebP |
+| Format nom de fichier | `YYYY-MM-DD_HH-MM-SS.<ext>` |
+
+---
+
+## Démarrage
+
+```bash
+# Lancer le serveur
+docker compose up -d --build
+
+# Vérifier qu'il tourne
+curl -sk https://$(hostname).local:5005/health
+# → {"status": "ok"}
+
+# Voir les logs en direct
+docker compose logs -f
+```
+
+---
+
+## API
+
+Toutes les routes (sauf `/health`) requièrent un header `Authorization: Bearer <SECRET_TOKEN>`.
+
+### `GET /health`
+
+Vérifie que le serveur est opérationnel. Pas d'authentification requise.
+
+```bash
+curl -sk https://<hostname>.local:5005/health
+```
+
+```json
+{"status": "ok"}
+```
+
+---
+
+### `POST /upload`
+
+Reçoit une photo et la dépose dans `~/Downloads/`.
+
+```bash
+curl -sk \
+  -H "Authorization: Bearer $SECRET_TOKEN" \
+  -F "file=@photo.jpg" \
+  https://<hostname>.local:5005/upload
+```
+
+**Réponse :**
+
+```json
+{
+  "status": "ok",
+  "filename": "2026-04-19_14-32-01.jpg"
+}
+```
+
+---
+
+### `POST /clipboard`
+
+Envoie du texte dans le presse-papier GNOME.
+
+```bash
+curl -sk \
+  -H "Authorization: Bearer $SECRET_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello World"}' \
+  https://<hostname>.local:5005/clipboard
+```
+
+**Réponse :**
+
+```json
+{"status": "ok"}
+```
+
+---
+
+## iOS — Raccourcis
+
+Le Raccourci implémente la logique suivante :
+
+1. Reçoit le contenu depuis le menu **Partager**
+2. Lit le SSID Wi-Fi actuel
+3. Choisit l'IP de destination selon le réseau :
+   - `Freebox-XXXXXX` → `192.168.1.x`
+   - `IONIS` → `10.109.x.x`
+4. Envoie une requête HTTPS POST avec le token Bearer
+5. Affiche une notification de succès ou d'erreur
+
+Des captures d'écran de la configuration du Raccourci sont disponibles dans le dossier `screenshots/`.
+
+---
+
+## Sécurité
+
+| Couche | Mécanisme |
+|---|---|
+| Réseau | Requêtes refusées si IP hors des sous-réseaux autorisés |
+| Authentification | Token Bearer dans le header `Authorization` |
+| Chiffrement | HTTPS/TLS (certificat auto-signé) |
+| Confidentialité | Tout le trafic reste sur le réseau local |
+| Rotation du token | Modifier `.env` et redémarrer le conteneur |
+
+> Le filtrage réseau est appliqué **avant** la validation du token pour limiter l'exposition.
 
 ---
 
 ## Commandes utiles
 
 ```bash
-docker compose logs -f            # Logs en temps réel
-docker compose down               # Arrêter
-docker compose up -d --build      # Rebuild après modification
+# Démarrer
+docker compose up -d --build
+
+# Arrêter
+docker compose down
+
+# Redémarrer
+docker compose restart
+
+# Logs temps réel
+docker compose logs -f
+
+# Vérifier la résolution mDNS
+avahi-resolve-host-name -4 $(hostname).local
+
+# Regénérer un token
+openssl rand -hex 32
+
+# Autoriser X11 (à chaque session)
+xhost +local:docker
+
+# Health check rapide
+curl -sk https://$(hostname).local:5005/health
 ```
 
 ---
 
-## Formats supportés
+## Structure du projet
 
-JPEG, PNG, HEIC, HEIF, GIF, WebP — taille maximale **50 Mo**
-
-Les fichiers sont nommés par date/heure de réception :
 ```
-2026-04-19_14-32-01.jpg
+iphoneShare/
+├── server.py              # Serveur Flask (routes, auth, upload, clipboard)
+├── requirements.txt       # Dépendances Python (flask==3.1.0)
+├── Dockerfile             # Image Python 3.12-slim
+├── docker-compose.yml     # Orchestration (host network, volumes X11)
+├── .env.example           # Template de configuration
+├── .env                   # Token secret (gitignored)
+├── cert.pem               # Certificat TLS (à envoyer à l'iPhone)
+├── key.pem                # Clé privée TLS (gitignored)
+├── .gitignore
+└── screenshots/           # Captures de configuration iOS Raccourcis
+    ├── menupartagerenvoyer.png
+    ├── notification.png
+    ├── raccourci1.png
+    └── Raccourci2.png
 ```
 
 ---
 
-## Sécurité et confidentialité
+## Licence
 
-### Vos données ne quittent jamais votre réseau
-
-Toutes les photos et tous les textes transitent **exclusivement sur votre réseau local** (Wi-Fi domestique ou réseau campus), de l'iPhone directement au PC. Aucune donnée ne passe par un serveur tiers, un cloud ou internet. Un attaquant extérieur à votre réseau ne peut pas intercepter ni accéder aux fichiers envoyés.
-
-### Chiffrement HTTPS de bout en bout
-
-Chaque transfert est chiffré via **HTTPS/TLS** entre l'iPhone et le serveur. Même sur un réseau partagé (campus, Wi-Fi public), le contenu des photos et du texte est illisible par quiconque écouterait le trafic.
-
-### Authentification par token secret
-
-Chaque requête doit présenter un **token secret dans le header `Authorization`**. Sans ce token, le serveur rejette la connexion avec une erreur 401. Cela empêche tout autre appareil sur le réseau local d'envoyer des fichiers au serveur à votre insu.
-
-### Filtrage par sous-réseau
-
-Le serveur vérifie l'adresse IP source de chaque requête **avant même la vérification du token**. Toute requête provenant d'un sous-réseau non autorisé est rejetée immédiatement (erreur 403).
-
-### Bonnes pratiques
-
-- `.env` (token secret) est exclu du contrôle de version via `.gitignore` et ne sera jamais publié.
-- En cas de compromission du token : générer un nouveau token avec `openssl rand -hex 32`, mettre à jour `.env`, relancer avec `docker compose up -d --build`, mettre à jour le Raccourci iOS.
+Usage personnel. Aucune donnée ne quitte le réseau local.
