@@ -19,25 +19,37 @@ echo ""
 install_docker() {
     echo "Docker non trouvé. Installation en cours..."
     OS_ID=$(. /etc/os-release && echo "$ID")
-    [[ "$OS_ID" != "ubuntu" && "$OS_ID" != "debian" ]] && \
-        err "Installation automatique non supportée sur $OS_ID. Installez Docker manuellement : https://docs.docker.com/engine/install/"
 
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq ca-certificates curl
-
-    sudo install -m 0755 -d /etc/apt/keyrings
-    sudo curl -fsSL "https://download.docker.com/linux/$OS_ID/gpg" \
-        -o /etc/apt/keyrings/docker.asc 2>/dev/null
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+    if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" ]]; then
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq ca-certificates curl
+        sudo install -m 0755 -d /etc/apt/keyrings
+        sudo curl -fsSL "https://download.docker.com/linux/$OS_ID/gpg" \
+            -o /etc/apt/keyrings/docker.asc 2>/dev/null
+        sudo chmod a+r /etc/apt/keyrings/docker.asc
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
 https://download.docker.com/linux/$OS_ID \
 $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
+            docker-buildx-plugin docker-compose-plugin
 
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
-        docker-buildx-plugin docker-compose-plugin
+    elif [[ "$OS_ID" == "fedora" || "$OS_ID" == "centos" || "$OS_ID" == "rhel" ]]; then
+        sudo dnf -y install dnf-plugins-core
+        sudo dnf config-manager --add-repo \
+            "https://download.docker.com/linux/$OS_ID/docker-ce.repo"
+        sudo dnf install -y docker-ce docker-ce-cli containerd.io \
+            docker-buildx-plugin docker-compose-plugin
+        sudo systemctl enable --now docker
+
+    elif [[ "$OS_ID" == "arch" ]]; then
+        sudo pacman -Sy --noconfirm docker docker-compose
+        sudo systemctl enable --now docker
+
+    else
+        err "OS '$OS_ID' non supporté. Installez Docker manuellement : https://docs.docker.com/engine/install/"
+    fi
 
     sudo usermod -aG docker "$USER"
     ok "Docker installé"
@@ -149,28 +161,52 @@ fi
 echo ""
 DETECTED_SSID=$(iwgetid -r 2>/dev/null || echo "")
 
+# Réseaux Wi-Fi déjà connus du PC (pour aider à ne pas se tromper)
+KNOWN_SSIDS=$(nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+    | grep ":wifi" | cut -d: -f1 | sort -u)
+
+show_known_ssids() {
+    if [[ -n "$KNOWN_SSIDS" ]]; then
+        echo "  Réseaux Wi-Fi connus de ce PC :"
+        while IFS= read -r s; do
+            echo "    • $s"
+        done <<< "$KNOWN_SSIDS"
+    fi
+}
+
 confirm_ssid() {
     local label="$1" detected="$2" varname="$3"
     if [[ -n "$detected" ]]; then
         read -rp "Wi-Fi $label détecté : '$detected' — c'est correct ? [O/n] : " confirm
         if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+            show_known_ssids
             read -rp "Nom du Wi-Fi $label (SSID) : " val
             eval "$varname=\"$val\""
         else
             eval "$varname=\"$detected\""
         fi
     else
+        show_known_ssids
         read -rp "Nom du Wi-Fi $label (SSID) : " val
         eval "$varname=\"$val\""
     fi
 }
 
+ask_other_ssid() {
+    local label="$1" varname="$2"
+    show_known_ssids
+    read -rp "Nom du Wi-Fi $label (SSID) : " val
+    eval "$varname=\"$val\""
+}
+
 if [[ "$location" == "a" ]]; then
     confirm_ssid "maison" "$DETECTED_SSID" HOME_SSID
-    read -rp "Nom du Wi-Fi campus (SSID) : " CAMPUS_SSID
+    echo ""
+    ask_other_ssid "campus" CAMPUS_SSID
 else
     confirm_ssid "campus" "$DETECTED_SSID" CAMPUS_SSID
-    read -rp "Nom du Wi-Fi maison (SSID) : " HOME_SSID
+    echo ""
+    ask_other_ssid "maison" HOME_SSID
 fi
 
 # --- Dossier de destination ---
