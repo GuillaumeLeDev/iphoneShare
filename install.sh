@@ -87,6 +87,29 @@ docker_run() {
     fi
 }
 
+# --- Détection mode curl (script pipé sans repo local) ---
+REPO_URL="https://github.com/GuillaumeLeDev/iphoneShare.git"
+INSTALL_DIR="$HOME/iphoneShare"
+
+if [[ ! -f "${BASH_SOURCE[0]}" || ! -f "$(dirname "${BASH_SOURCE[0]}")/server.py" ]]; then
+    echo "Fichiers du projet manquants. Clonage du dépôt..."
+    command -v git &>/dev/null || {
+        OS_ID=$(. /etc/os-release && echo "$ID")
+        if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" ]]; then
+            sudo apt-get install -y -qq git
+        elif [[ "$OS_ID" == "fedora" || "$OS_ID" == "centos" || "$OS_ID" == "rhel" ]]; then
+            sudo dnf install -y git
+        elif [[ "$OS_ID" == "arch" ]]; then
+            sudo pacman -Sy --noconfirm git
+        else
+            err "git non trouvé. Installez-le manuellement puis relancez."
+        fi
+    }
+    [[ -d "$INSTALL_DIR" ]] && rm -rf "$INSTALL_DIR"
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    exec bash "$INSTALL_DIR/install.sh"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -370,6 +393,34 @@ echo "    cat SETUP_IPHONE.txt"
 echo ""
 echo "  Logs du serveur : docker compose logs -f"
 echo ""
+
+# --- Presse-papier : xhost automatique ---
+if command -v xhost &>/dev/null; then
+    echo "==========================================="
+    echo "  Presse-papier (optionnel)"
+    echo "==========================================="
+    echo ""
+    echo "  La fonction presse-papier permet d'envoyer du texte"
+    echo "  depuis l'iPhone directement dans le presse-papier du PC."
+    echo "  Elle nécessite d'autoriser Docker à accéder à l'affichage"
+    echo "  X11 (commande : xhost +local:docker)."
+    echo ""
+    read -rp "  Activer automatiquement au démarrage de session ? [o/N] : " xhost_auto
+    if [[ "$xhost_auto" == "o" || "$xhost_auto" == "O" ]]; then
+        XHOST_LINE="xhost +local:docker > /dev/null 2>&1"
+        if ! grep -qF "$XHOST_LINE" "$HOME/.profile" 2>/dev/null; then
+            echo "" >> "$HOME/.profile"
+            echo "# iphoneShare - presse-papier Docker" >> "$HOME/.profile"
+            echo "$XHOST_LINE" >> "$HOME/.profile"
+        fi
+        xhost +local:docker > /dev/null 2>&1 || true
+        ok "xhost activé pour cette session et les suivantes"
+    else
+        warn "Presse-papier non activé. Pour l'activer manuellement : xhost +local:docker"
+    fi
+    echo ""
+fi
+
 if [[ -n "$DOCKER_CMD" ]]; then
     echo "==========================================="
     echo -e "${YELLOW}  IMPORTANT — permissions Docker${NC}"
