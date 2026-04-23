@@ -78,14 +78,16 @@ if [[ ${#IPS[@]} -eq 0 ]]; then
     err "Aucune IP locale détectée. Vérifiez votre connexion réseau."
 fi
 
+LETTERS=({a..z})
 echo "IPs détectées :"
 for i in "${!IPS[@]}"; do
-    echo "  $((i+1))) ${IPS[$i]}"
+    echo "  ${LETTERS[$i]}) ${IPS[$i]}"
 done
 
 echo ""
-read -rp "Numéro de l'IP active sur ce réseau : " choice
-CURRENT_IP="${IPS[$((choice-1))]}"
+read -rp "À quelle lettre correspond votre IP ? (192.168.1.x est la plus probable) : " choice
+idx=$(( $(printf '%d' "'$choice") - $(printf '%d' "'a") ))
+CURRENT_IP="${IPS[$idx]}"
 [[ -z "$CURRENT_IP" ]] && err "Choix invalide."
 ok "IP sélectionnée : $CURRENT_IP"
 
@@ -133,15 +135,28 @@ fi
 # --- SSIDs Wi-Fi ---
 echo ""
 DETECTED_SSID=$(iwgetid -r 2>/dev/null || echo "")
-[[ -n "$DETECTED_SSID" ]] && echo "SSID détecté : $DETECTED_SSID"
+
+confirm_ssid() {
+    local label="$1" detected="$2" varname="$3"
+    if [[ -n "$detected" ]]; then
+        read -rp "Wi-Fi $label détecté : '$detected' — c'est correct ? [O/n] : " confirm
+        if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+            read -rp "Nom du Wi-Fi $label (SSID) : " val
+            eval "$varname=\"$val\""
+        else
+            eval "$varname=\"$detected\""
+        fi
+    else
+        read -rp "Nom du Wi-Fi $label (SSID) : " val
+        eval "$varname=\"$val\""
+    fi
+}
 
 if [[ "$location" == "m" ]]; then
-    read -rp "Nom du Wi-Fi maison (SSID) [${DETECTED_SSID}] : " HOME_SSID
-    HOME_SSID="${HOME_SSID:-$DETECTED_SSID}"
+    confirm_ssid "maison" "$DETECTED_SSID" HOME_SSID
     read -rp "Nom du Wi-Fi campus (SSID) : " CAMPUS_SSID
 else
-    read -rp "Nom du Wi-Fi campus (SSID) [${DETECTED_SSID}] : " CAMPUS_SSID
-    CAMPUS_SSID="${CAMPUS_SSID:-$DETECTED_SSID}"
+    confirm_ssid "campus" "$DETECTED_SSID" CAMPUS_SSID
     read -rp "Nom du Wi-Fi maison (SSID) : " HOME_SSID
 fi
 
@@ -182,7 +197,7 @@ NETWORKS=""
 
 cat > .env << EOF
 SECRET_TOKEN=$TOKEN
-ALLOWED_NETWORKS=$NETWORKS
+ALLOWED_NETWORKS="$NETWORKS"
 EOF
 ok ".env créé"
 
