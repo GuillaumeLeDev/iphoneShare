@@ -89,7 +89,7 @@ docker_run() {
 
 # --- Détection mode curl (script pipé sans repo local) ---
 REPO_URL="https://github.com/GuillaumeLeDev/iphoneShare.git"
-INSTALL_DIR="$HOME/iphoneShare"
+INSTALL_DIR="$PWD/iphoneShare"
 
 if [[ ! -f "${BASH_SOURCE[0]}" || ! -f "$(dirname "${BASH_SOURCE[0]}")/server.py" ]]; then
     echo "Fichiers du projet manquants. Clonage du dépôt..."
