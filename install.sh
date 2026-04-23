@@ -104,17 +104,18 @@ ok "IP sélectionnée : $CURRENT_IP"
 CURRENT_SUBNET=$(python3 -c "
 import subprocess, ipaddress
 result = subprocess.run(['ip', 'route'], capture_output=True, text=True)
+found = None
 for line in result.stdout.splitlines():
     parts = line.split()
     if parts and '/' in parts[0]:
         try:
             net = ipaddress.ip_network(parts[0], strict=False)
             if ipaddress.ip_address('$CURRENT_IP') in net:
-                print(parts[0])
-                exit()
-        except:
+                found = parts[0]
+                break
+        except Exception:
             pass
-print('.'.join('$CURRENT_IP'.split('.')[:3]) + '.0/24')
+print(found if found else '.'.join('$CURRENT_IP'.split('.')[:3]) + '.0/24')
 ")
 ok "Sous-réseau détecté : $CURRENT_SUBNET"
 
