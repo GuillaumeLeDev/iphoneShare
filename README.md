@@ -23,6 +23,7 @@ Tout le trafic reste sur votre réseau local (Wi-Fi). Rien ne passe par internet
 | Multi-réseau | Détecte automatiquement si vous êtes chez vous ou au campus |
 | Démarrage auto | Le serveur redémarre tout seul au boot du PC |
 | Sécurité | Token secret + restriction par sous-réseau |
+| Multi-distro | Ubuntu, Debian, Fedora, CentOS, Arch Linux |
 
 ---
 
@@ -34,25 +35,40 @@ Tout le trafic reste sur votre réseau local (Wi-Fi). Rien ne passe par internet
 
 ---
 
-## Installation (PC Ubuntu / Debian)
+## Installation
 
-> **Prérequis :** Git installé. Le script installe Docker automatiquement si nécessaire.
+### Option 1 — Installation en une ligne (recommandée)
 
-### 1. Télécharger le projet
+> **Prérequis :** aucun. La commande se charge de tout.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GuillaumeLeDev/iphoneShare/master/install.sh | bash
+```
+
+`curl` télécharge le script d'installation directement depuis GitHub et l'exécute. Le script détecte qu'il tourne sans les fichiers du projet, clone automatiquement le dépôt, puis enchaîne l'installation complète — Docker, certificat SSL, token, configuration — sans aucune autre intervention de votre part.
+
+> **Note sécurité :** cette commande exécute du code téléchargé depuis internet. Si vous préférez inspecter le script avant de l'exécuter, utilisez l'option 2.
+
+---
+
+### Option 2 — Installation manuelle (pour les plus prudents)
+
+> **Prérequis :** Git installé.
 
 ```bash
 git clone https://github.com/GuillaumeLeDev/iphoneShare.git
 cd iphoneShare
-```
-
-### 2. Lancer le script d'installation
-
-```bash
 ./install.sh
 ```
 
+Vous pouvez lire le contenu de `install.sh` avant de le lancer.
+
+---
+
+### Ce que fait le script dans les deux cas
+
 Le script va :
-- Installer Docker s'il n'est pas présent
+- Installer Docker s'il n'est pas présent (Ubuntu, Debian, Fedora, CentOS, Arch)
 - Détecter votre IP et votre réseau Wi-Fi automatiquement
 - Générer un token secret
 - Générer un certificat HTTPS
