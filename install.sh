@@ -53,6 +53,15 @@ if ! command -v docker &>/dev/null; then
 elif ! docker compose version &>/dev/null; then
     err "Docker Compose non trouvé. Mettez Docker à jour : https://docs.docker.com/engine/install/"
 fi
+
+# Vérifier les permissions Docker (même si Docker était déjà installé)
+if ! docker info &>/dev/null 2>&1; then
+    warn "Permissions Docker insuffisantes. Ajout au groupe docker..."
+    sudo usermod -aG docker "$USER"
+    DOCKER_CMD="sg docker -c"
+    ok "Ajouté au groupe docker"
+fi
+
 command -v openssl &>/dev/null || err "openssl non trouvé : sudo apt install openssl"
 command -v python3 &>/dev/null || err "python3 non trouvé : sudo apt install python3"
 ok "Prérequis OK"
