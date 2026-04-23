@@ -107,7 +107,7 @@ if [[ ! -f "${BASH_SOURCE[0]}" || ! -f "$(dirname "${BASH_SOURCE[0]}")/server.py
     }
     [[ -d "$INSTALL_DIR" ]] && rm -rf "$INSTALL_DIR"
     git clone "$REPO_URL" "$INSTALL_DIR"
-    exec bash "$INSTALL_DIR/install.sh"
+    exec bash "$INSTALL_DIR/install.sh" </dev/tty
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
