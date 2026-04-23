@@ -16,10 +16,8 @@ log = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp"}
 
-ALLOWED_NETWORKS = [
-    ipaddress.ip_network("192.168.1.0/24"),  # Freebox maison
-    ipaddress.ip_network("10.109.0.0/16"),   # Campus IONIS
-]
+_networks_raw = os.environ.get("ALLOWED_NETWORKS", "192.168.1.0/24,10.109.0.0/16")
+ALLOWED_NETWORKS = [ipaddress.ip_network(n.strip()) for n in _networks_raw.split(",") if n.strip()]
 
 
 def check_auth(client_ip: str):
