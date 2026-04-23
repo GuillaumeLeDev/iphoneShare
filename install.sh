@@ -89,6 +89,7 @@ docker_run() {
 
 # --- Détection mode curl (script pipé sans repo local) ---
 REPO_URL="https://github.com/GuillaumeLeDev/iphoneShare.git"
+REPO_BRANCH="dev"
 INSTALL_DIR="$PWD/iphoneShare"
 
 if [[ ! -f "${BASH_SOURCE[0]}" || ! -f "$(dirname "${BASH_SOURCE[0]}")/server.py" ]]; then
@@ -106,7 +107,7 @@ if [[ ! -f "${BASH_SOURCE[0]}" || ! -f "$(dirname "${BASH_SOURCE[0]}")/server.py
         fi
     }
     [[ -d "$INSTALL_DIR" ]] && rm -rf "$INSTALL_DIR"
-    git clone "$REPO_URL" "$INSTALL_DIR"
+    git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
     exec bash "$INSTALL_DIR/install.sh" </dev/tty
 fi
 
