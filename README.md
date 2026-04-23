@@ -31,7 +31,7 @@ Tout le trafic reste sur votre réseau local (Wi-Fi). Rien ne passe par internet
 
 | Menu Partager | Raccourci | Notification |
 |---|---|---|
-| ![Menu partager](screenshots/menupartagerenvoyer.png) | ![Raccourci](screenshots/raccourci1.png) | ![Notification](screenshots/notification.png) |
+| ![Menu partager](screenshots/MenuPartager.jpg) | ![Raccourci](screenshots/raccourci1.png) | ![Notification](screenshots/notification.png) |
 
 ---
 
