@@ -42,7 +42,7 @@ Tout le trafic reste sur votre réseau local (Wi-Fi). Rien ne passe par internet
 > **Prérequis :** aucun. La commande se charge de tout.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/GuillaumeLeDev/iphoneShare/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/GuillaumeLeDev/iphoneShare/dev/install.sh | bash
 ```
 
 `curl` télécharge le script d'installation directement depuis GitHub et l'exécute. Le script détecte qu'il tourne sans les fichiers du projet, clone automatiquement le dépôt, puis enchaîne l'installation complète — Docker, certificat SSL, token, configuration — sans aucune autre intervention de votre part.
