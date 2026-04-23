@@ -120,9 +120,12 @@ ok "Sous-réseau détecté : $CURRENT_SUBNET"
 
 # --- Réseau maison ou campus ? ---
 echo ""
-read -rp "Êtes-vous actuellement à la [m]aison ou au [c]ampus ? " location
+echo "Où êtes-vous actuellement ?"
+echo "  a) Maison"
+echo "  b) Campus"
+read -rp "Votre choix [a/b] : " location
 
-if [[ "$location" == "m" ]]; then
+if [[ "$location" == "a" ]]; then
     HOME_IP="$CURRENT_IP"
     HOME_SUBNET="$CURRENT_SUBNET"
     echo ""
@@ -161,7 +164,7 @@ confirm_ssid() {
     fi
 }
 
-if [[ "$location" == "m" ]]; then
+if [[ "$location" == "a" ]]; then
     confirm_ssid "maison" "$DETECTED_SSID" HOME_SSID
     read -rp "Nom du Wi-Fi campus (SSID) : " CAMPUS_SSID
 else
@@ -316,3 +319,14 @@ echo "  1. Lisez SETUP_IPHONE.txt pour configurer le Raccourci"
 echo "  2. Testez depuis Safari iPhone : https://$CURRENT_IP:5005/health"
 echo "  3. Logs du serveur : docker compose logs -f"
 echo ""
+if [[ -n "$DOCKER_CMD" ]]; then
+    echo "==========================================="
+    echo -e "${YELLOW}  IMPORTANT — permissions Docker${NC}"
+    echo "==========================================="
+    echo ""
+    echo "  Vous venez d'être ajouté au groupe docker."
+    echo "  Pour utiliser 'docker' dans ce terminal, exécutez :"
+    echo ""
+    echo "    newgrp docker"
+    echo ""
+fi
